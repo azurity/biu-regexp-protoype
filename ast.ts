@@ -285,8 +285,8 @@ class WithQuantifier extends RegAST {
                         cased.sub.pop();
                         cased.tempResult.pop();
                         cur -= 1;
-                        if (limit < 0) {
-                            if (d >= 0 && cur >= cased.minN) {
+                        if (limit <= 0) {
+                            if (d >= 0 && (cur + 1) >= cased.minN) {
                                 finish = true;
                             }
                         }

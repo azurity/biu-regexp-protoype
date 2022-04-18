@@ -26,7 +26,7 @@ export class BiuRegExp {
         if (typeof data == 'string') {
             data = _prepareStr(data as string);
         }
-        for (let i = 0; i < data.length; i++) {
+        for (let i = 0; i <= data.length; i++) {
             let ret = this.ast.match(data as Uint32Array, i, { value: null }, { direct: 1, flag: this.flag });
             if (ret != null) {
                 ret.result.set(0, {
@@ -57,14 +57,14 @@ export function matchAll(s: string, matcher: BiuRegExp): string[] {
     let ret = [];
     let prepared = _prepareStr(s);
     let index = 0;
-    while (true) {
+    while (index <= prepared.length) {
         // need slice!!!
         let result = matcher.exec(prepared.slice(index));
         if (result === null) {
             break;
         }
         ret.push(result.get(0)!.result);
-        index += Math.max(_prepareStr(result.get(0)!.result).length, 1);
+        index += Math.max(result.get(0)!.position + _prepareStr(result.get(0)!.result).length, 1);
     }
     return ret;
 }
