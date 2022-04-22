@@ -234,6 +234,18 @@ class WithQuantifier extends RegAST {
                 let cur = cased.tempResult.length - 1;
                 if (cur < 0) { cur = 0; }
                 while (cur >= 0) {
+                    if (cur == limit) {
+                        let result: MatchResultSet = new Map();
+                        for (let set of cased.tempResult) {
+                            for (let it of set!.result) {
+                                result.set(...it);
+                            }
+                        }
+                        return {
+                            result: result,
+                            index: i,
+                        };
+                    }
                     if (cased.sub.length == cur) {
                         cased.sub.push({ value: null });
                         cased.tempResult.push(null);
@@ -247,18 +259,6 @@ class WithQuantifier extends RegAST {
                         cased.tempResult[cur] = ret;
                         i = ret.index;
                         cur += 1;
-                    }
-                    if (cur == limit) {
-                        let result: MatchResultSet = new Map();
-                        for (let set of cased.tempResult) {
-                            for (let it of set!.result) {
-                                result.set(...it);
-                            }
-                        }
-                        return {
-                            result: result,
-                            index: i,
-                        };
                     }
                 }
                 cased.minN += 1;
@@ -535,7 +535,7 @@ class DotNode extends RegAST {
         if (index < 0 || index >= data.length) {
             return null;
         }
-        if (((context.flag & FlagMultiline) != 0) && (charIsLineTerminator(data[index] - 1))) {
+        if (((context.flag & FlagMultiline) != 0) && (charIsLineTerminator(data[index]))) {
             return null;
         }
         cased.n += 1;
@@ -768,7 +768,7 @@ class RangeNode extends RegAST {
         return `${CodePointToString(this.begin)}-${CodePointToString(this.end)}`;
     }
     match(data: Uint32Array, index: number, state: State, context: Context): MatchInternal | null {
-        if (index >= data.length) {
+        if (index < 0 || index >= data.length) {
             return null;
         }
         if (data[index] >= this.begin && data[index] <= this.end) {
@@ -895,10 +895,13 @@ function ParseAssertion(data: Uint32Array, index: number): { result: Assertion, 
             index: index + 1,
         }
     } else if (data[index] == '\\'.codePointAt(0)) {
+        if (index + 1 >= data.length) {
+            return null;
+        }
         let ret = new WordAssertNode();
         if (data[index + 1] == 'b'.codePointAt(0)) {
             ret.without = false;
-        } else if (data[index + 1] == 'b'.codePointAt(0)) {
+        } else if (data[index + 1] == 'B'.codePointAt(0)) {
             ret.without = true;
         } else {
             return null;
@@ -996,6 +999,9 @@ function ParseQuantifier(data: Uint32Array, index: number): { result: Quantifier
         i = i + 1;
     } else if (data[index] == '{'.codePointAt(0)) {
         let nret = ParseNumber(data, i + 1);
+        if (nret === null) {
+            return null;
+        }
         i = nret.index;
         ret.min = nret.result;
         ret.max = nret.result;
@@ -1042,12 +1048,17 @@ function ParseQuantifier(data: Uint32Array, index: number): { result: Quantifier
     }
 }
 
-function ParseNumber(data: Uint32Array, index: number): { result: number, index: number } {
+function ParseNumber(data: Uint32Array, index: number): { result: number, index: number } | null {
     let ret = 0;
     let i = index;
+    let start = false;
     while ((i < data.length) && (data[i]! >= '0'.codePointAt(0)!) && (data[i]! <= '9'.codePointAt(0)!)) {
+        start = true;
         ret = ret * 10 + (data[i] - '0'.codePointAt(0)!);
         i = i + 1;
+    }
+    if (!start) {
+        return null;
     }
     return {
         result: ret,
@@ -1096,6 +1107,9 @@ function ParseAtomBody(data: Uint32Array, index: number): { result: Atom, index:
 
 function ParseDecimalEscape(data: Uint32Array, index: number): { result: DecimalEscapeNode, index: number } | null {
     let ret = ParseNumber(data, index);
+    if (ret === null) {
+        return null;
+    }
     if (index == ret.index) {
         return null;
     }
@@ -1146,22 +1160,23 @@ function ParsePropBody(data: Uint32Array, index: number): { result: Prop, index:
     let value = '';
     while (i < data.length) {
         if (step == 0) {
-            if (data[i] != '<'.codePointAt(0)) {
+            if (data[i] != '{'.codePointAt(0)) {
                 return null;
             }
             step = 1;
         } else if (step == 1) {
-            if (data[i] == '>'.codePointAt(0)) {
+            if (data[i] == '}'.codePointAt(0)) {
                 step = 3;
                 continue;
             } else if (data[i] == '='.codePointAt(0)) {
                 name = value;
+                value = "";
                 step = 2;
             } else {
                 value += String.fromCodePoint(data[i]);
             }
         } else if (step == 2) {
-            if (data[i] == '>'.codePointAt(0)) {
+            if (data[i] == '}'.codePointAt(0)) {
                 step = 3;
                 continue;
             } else {
@@ -1231,6 +1246,15 @@ function ParseCharacterEscape(data: Uint32Array, index: number): { result: CharN
             }
         }
     } else if (data[index] == 'u'.codePointAt(0)) {
+        let uret = ParseUnicode(data, index + 1);
+        if (uret != null) {
+            let ret = new CharNode();
+            ret.char = uret.result;
+            return {
+                result: ret,
+                index: uret.index,
+            };
+        }
         if (index + 4 < data.length) {
             let b0 = String.fromCodePoint(data[index + 1]);
             let b1 = String.fromCodePoint(data[index + 2]);
@@ -1242,16 +1266,6 @@ function ParseCharacterEscape(data: Uint32Array, index: number): { result: CharN
                 return {
                     result: ret,
                     index: index + 5,
-                };
-            }
-        } else {
-            let uret = ParseUnicode(data, index + 1);
-            if (uret != null) {
-                let ret = new CharNode();
-                ret.char = uret.result;
-                return {
-                    result: ret,
-                    index: uret.index,
                 };
             }
         }
